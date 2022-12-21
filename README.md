@@ -9,7 +9,7 @@ objects, actions, landmarks and more.
 
 
 
-![plot](https://github.com/gm3044/Dining-Concierge-Assistant/blob/main/high_level_archiecture_diagram.png)
+![plot](https://github.com/gm3044/Photo-Album/blob/main/Architecture%20diagram.png)
 
 
 
