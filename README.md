@@ -2,15 +2,14 @@
 ## Assignment 2 Photo Album
 ### Team: Asura Shen and Ganghua Mei
 
-Customer Service is a core service for a lot of businesses around the world and it is getting 
-disrupted at the moment by Natural Language Processing-powered applications. In this first 
-assignment you will implement a serverless, microservice-driven web application. Specifically, 
-you will build a Dining Concierge chatbot that sends you restaurant suggestions given a set of 
-preferences that you provide the chatbot with through conversation.
+Implement a photo album web application that can be searched using natural language
+through both text and voice. You will learn how to use Lex, OpenSearch, and
+Rekognition to create an intelligent search layer to query your photos for people,
+objects, actions, landmarks and more.
 
 
 
 ![plot](https://github.com/gm3044/Dining-Concierge-Assistant/blob/main/high_level_archiecture_diagram.png)
 
 
-## S3 link: http://sahu-hw1.s3-website-us-east-1.amazonaws.com
+
