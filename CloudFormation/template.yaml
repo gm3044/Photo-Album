@@ -1,0 +1,592 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: 'AWS::Serverless-2016-10-31'
+Description: CF_Assignment 2
+Parameters:
+  S3BucketNameB3:
+    Description: The name of the S3 bucket to be created.
+    Type: String
+    Default: index-photos-bucket-b2
+  S3BucketNameB2:
+    Description: The name of the S3 bucket to be created.
+    Type: String
+    Default: photoss3000001-1
+  S3BucketNameB1:
+    Description: The name of the S3 bucket for storing the front end.
+    Type: String
+    Default: photo-front-end-1
+  GitHubRepo:
+    Type: String
+    Default: smart-photo-album
+
+  GitHubBranch:
+    Type: String
+    Default: main
+
+  GitHubToken:
+    Type: String
+    Default: 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
+
+  GitHubUser:
+    Type: String
+    Default: asurashen
+
+Resources:
+  S3BucketForPhotosB2:
+    Type: 'AWS::S3::Bucket'
+    DependsOn: PermissionForS3ToLF1
+    Properties:
+      BucketName: !Ref S3BucketNameB3
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt LambdaFunctionLF1.Arn
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - HEAD
+              - GET
+              - POST
+              - PUT
+              - DELETE
+            AllowedOrigins:
+              - '*'
+            ExposedHeaders:
+              - ETag
+      Tags:
+        - Key: Name
+          Value: !Ref S3BucketNameB3
+        - Key: CreatedBy
+          Value: "ShantanuJain"
+  S3BucketB2Policy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref S3BucketForPhotosB2
+      PolicyDocument: {
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "*"
+            },
+            "Action": "s3:ListBucket",
+            "Resource": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:aws:s3:::",
+                  {
+                    "Ref": "S3BucketForPhotosB2"
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "*"
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:aws:s3:::",
+                  {
+                    "Ref": "S3BucketForPhotosB2"
+                  },
+                  "/*"
+                ]
+              ]
+            }
+          }
+        ]
+      } 
+  # Lambda Function: LF1 for storing the photo in elastic search domain with labels
+  LambdaExecutionRoleLF1:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'The execution role for the lambda LF1. This is the master arn role as well.'
+      Path: '/'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: "LambdaLF1Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${S3BucketNameB3}"
+              - Effect: Allow
+                Action:
+                  - rekognition:DetectLabels
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - es:ESHttpPut
+                  - es:ESHttpPost
+                Resource: "*"
+      RoleName: "LambdaExecutionRoleLF1"
+  LambdaFunctionLF1:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: LambdaExecutionRoleLF1
+    Properties:
+      FunctionName: 'Assignment2_LF1'
+      Description: 'Function to detect labels from photos and add it to ElasticSearch. It is automatically trigerred by S3.'
+      Role: !GetAtt LambdaExecutionRoleLF1.Arn
+      Code:
+        S3Bucket: 'search-pipeline'
+        S3Key: Assignment2_LF1.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: "python3.7"
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          ESPhotosEndpoint: !GetAtt OpenSearch.DomainEndpoint
+          AUTH_USER: gm3044
+          AUTH_PASS: gm3044@E6998
+  PermissionForS3ToLF1:
+    Type: 'AWS::Lambda::Permission'
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunctionLF1
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+      SourceArn: !Sub "arn:aws:s3:::${S3BucketNameB3}"
+  LogGroupLF1:
+    Type: 'AWS::Logs::LogGroup'
+    DependsOn: LambdaFunctionLF1
+    Properties: 
+      LogGroupName: !Join
+        - ''
+        - - "/aws/lambda/"
+          - !Ref LambdaFunctionLF1
+      RetentionInDays: 7
+  # search-photos lambda function for interaction with elasticsearch, and lex bot
+  LambdaExecutionRoleLF2:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'The execution role for the lambda LF2.'
+      Path: '/'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: "LambdaLF2Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttpGet
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - lex:PostText
+                Resource: "*"
+      RoleName: "LambdaExecutionRoleLF2"
+      Tags:
+        - Key: Name
+          Value: "LambdaExecutionRoleLF2"
+        - Key: CreatedBy
+          Value: "ShantanuJain"
+  LambdaFunctionLF2:
+    Type: 'AWS::Lambda::Function'
+    # DependsOn: LambdaExecutionRoleLF2
+    DependsOn: LambdaExecutionRoleLF1
+    Properties:
+      FunctionName: 'Assignment2_LF2'
+      Description: 'Function to search photos based on keywords extracted from lex bot and fetch the same from elasticsearch.'
+      Role: !GetAtt LambdaExecutionRoleLF2.Arn
+      Code:
+        S3Bucket: 'search-pipeline'
+        S3Key: Assignment2_LF2.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: "python3.9"
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          ESPhotosEndpoint: !GetAtt OpenSearch.DomainEndpoint
+          AUTH_USER: gm3044
+          AUTH_PASS: gm3044@E6998
+  LogGroupLF2:
+    Type: 'AWS::Logs::LogGroup'
+    DependsOn: LambdaFunctionLF2
+    Properties: 
+      LogGroupName: !Join
+        - ''
+        - - "/aws/lambda/"
+          - !Ref LambdaFunctionLF2
+      RetentionInDays: 7
+OpenSearch:
+    Type: "AWS::OpenSearchService::Domain"
+    Properties:
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions: 
+          MasterUserName: gm3044
+          MasterUserPassword: gm3044@E6998
+      NodeToNodeEncryptionOptions: 
+        Enabled: true
+      EncryptionAtRestOptions:
+        Enabled: true
+      DomainEndpointOptions: 
+        EnforceHTTPS : true
+      DomainName: 'photos-asm2-os'
+      ClusterConfig:
+        InstanceCount: '1'
+        InstanceType: 't3.small.search'
+      EBSOptions:
+        EBSEnabled: true
+        Iops: '3000'
+        VolumeSize: '10'
+        VolumeType: 'gp3'
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: 'es:*'
+            Resource: 'arn:aws:es:us-east-1:808751852363:domain/photos/*'
+API:
+    Type : AWS::ApiGateway::RestApi
+    Properties :
+            Body :
+                swagger: "2.0"
+                info:
+                  description: "AI Photo Search application, built during the Cloud and Big Data course\
+                    \ at Columbia University."
+                  version: "1.0.0"
+                  title: "AI Photo Search"
+                host: "b632a3unq3.execute-api.us-east-1.amazonaws.com"
+                basePath: "/v1"
+                schemes:
+                - "https"
+                paths:
+                  /search:
+                    get:
+                      produces:
+                      - "application/json"
+                      parameters:
+                      - name: "q"
+                        in: "query"
+                        required: true
+                        type: "string"
+                      responses:
+                        "200":
+                          description: "200 response"
+                          schema:
+                            $ref: "#/definitions/SearchResponse"
+                          headers:
+                            Access-Control-Allow-Origin:
+                              type: "string"
+                    options:
+                      produces:
+                      - "application/json"
+                      responses:
+                        "200":
+                          description: "200 response"
+                          schema:
+                            $ref: "#/definitions/SearchResponse"
+                          headers:
+                            Access-Control-Allow-Origin:
+                              type: "string"
+                            Access-Control-Allow-Methods:
+                              type: "string"
+                            Access-Control-Allow-Headers:
+                              type: "string"
+                  /upload/{photos}/{img}:
+                    put:
+                      produces:
+                      - "application/json"
+                      parameters:
+                      - name: "Content-Type"
+                        in: "header"
+                        required: false
+                        type: "string"
+                      - name: "img"
+                        in: "path"
+                        required: true
+                        type: "string"
+                      - name: "photos"
+                        in: "path"
+                        required: true
+                        type: "string"
+                      - name: "x-amz-meta-customLabels"
+                        in: "header"
+                        required: false
+                        type: "string"
+                      responses:
+                        "200":
+                          description: "200 response"
+                          schema:
+                            $ref: "#/definitions/Photo"
+                          headers:
+                            Access-Control-Allow-Origin:
+                              type: "string"
+                            Access-Control-Allow-Methods:
+                              type: "string"
+                            Access-Control-Allow-Headers:
+                              type: "string"
+                            x-amz-meta-customLabels:
+                              type: "string"
+                    options:
+                      parameters:
+                      - name: "photos"
+                        in: "path"
+                        required: true
+                        type: "string"
+                      - name: "img"
+                        in: "path"
+                        required: true
+                        type: "string"
+                      responses:
+                        "200":
+                          description: "200 response"
+                          headers:
+                            Access-Control-Allow-Origin:
+                              type: "string"
+                            Access-Control-Allow-Methods:
+                              type: "string"
+                            Access-Control-Allow-Headers:
+                              type: "string"
+                definitions:
+                  Photo:
+                    type: "object"
+                    properties:
+                      url:
+                        type: "string"
+                      labels:
+                        type: "array"
+                        items:
+                          type: "string"
+                  SearchResponse:
+                    type: "object"
+                    properties:
+                      results:
+                        type: "array"
+                        items:
+                          $ref: "#/definitions/Photo"
+                Parameters:
+                    endpointConfigurationTypes: REGIONAL 
+CodePipelineProjectRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+                - cloudformation.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline and cloudformation.'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess   
+CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        ArtifactIdentifier: lambda-pipeline-artifacts
+        Type: CODEPIPELINE   
+      Description: 'code build project for lambda pipeline'
+      # EncryptionKey: String
+      Environment: 
+        # Certificate: String
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+      Name: lambda-code-build-test2
+      ServiceRole: !Ref CodePipelineProjectRole
+      Source:
+        Type: CODEPIPELINE
+    
+LambdaPipelineAccess:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      RoleName: 'LambdaPipelineRoletest'
+LambdaPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties: 
+      ArtifactStore:
+        Location: search-pipleline
+        Type: S3
+      Name: lambda-pipeline
+      RestartExecutionOnUpdate: false
+      RoleArn: !GetAtt LambdaPipelineAccess.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1  
+              Configuration: {
+                "Owner": !Ref GitHubUser,
+                "Repo": !Ref GitHubRepo,
+                "Branch": !Ref GitHubBranch,
+                "OAuthToken": !Ref GitHubToken,
+              }
+              OutputArtifacts:
+                - Name: 'voice-controlled-app'
+                
+        - Name: Build
+          Actions: 
+            - Name: Build
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration: {
+                "ProjectName": {"Ref": "CodeBuildProject"}
+              }
+              InputArtifacts: 
+                - Name: 'voice-controlled-app'
+              OutputArtifacts: 
+                - Name: 'voice-controlled-app-output'
+        - Name: Deploy 
+          Actions: 
+            - Name: Deploy
+              ActionTypeId: 
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration: {
+                "ActionMode": "CREATE_UPDATE",
+                "StackName": "voicePhotoAlbumStack",
+                "Capabilities": "CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND",
+                "RoleArn": { "Fn::GetAtt" : [ "CodePipelineProjectRole", "Arn" ] },
+                "TemplatePath": "BuildArtifact::outputsamtemplate.yml"
+              }
+
+
+  # Frontend bucket for static website hosting
+FrontendS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead 
+      BucketName: !Ref S3BucketNameB1
+      WebsiteConfiguration: 
+        IndexDocument: chat.html
+FrontendS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: PublicAccessForWebsite
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref FrontendS3Bucket
+                - /*
+      Bucket: !Ref FrontendS3Bucket
+FrontEndPipelineAccessToS3:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: 'Role for codepipeline to access S3'
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      RoleName: 'api-gateway-upload-to-s3-test'
+FrontendCodePipelineToS3:
+    Type: AWS::CodePipeline::Pipeline
+    Properties: 
+      ArtifactStore: 
+        Location: photo-front-end
+        Type: S3        
+      Name: pipelinetos3test
+      RestartExecutionOnUpdate: true
+      RoleArn: !GetAtt FrontEndPipelineAccessToS3.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              InputArtifacts: []
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              Configuration:
+                Owner: !Ref GitHubUser
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+                PollForSourceChanges: false
+              RunOrder: 1
+              OutputArtifacts:
+                - Name: 'voice-controlled-app'
+
+        - Name: Deploy 
+          Actions: 
+            - Name: Deploy
+              ActionTypeId: 
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: 1
+              Configuration: {
+                "BucketName": {"Ref": "FrontendS3Bucket"},
+                "Extract": "true"
+              }
+              InputArtifacts: 
+                - Name: 'voice-controlled-app'

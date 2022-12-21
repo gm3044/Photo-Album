@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Lambda_Assignment_2
+
+Resources:
+  PhotoAlbumBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: 'photoss3000001'
+
+  LF1:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: index-photos
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./lambda_function_index
+      Description: 'An Amazon S3 trigger that retrieves metadata for the object that has been updated.'
+      MemorySize: 256
+      Timeout: 15
+      Role: 'arn:aws:iam::808751852363:role/service-role/index-photos-role'
+      Layers: [arn:aws:lambda:us-east-1:808751852363:layer:aws4auth:1,	arn:aws:lambda:us-east-1:808751852363:layer:requests_layer:1]
+      Events:
+        S3PutObjectEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref PhotoAlbumBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: images/
+  LF2:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: search-photos
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      CodeUri: ./lambda_function_search
+      Description: 'CCBD Assignment 2: Lambda function to search photos in Elastic Search'
+      MemorySize: 256
+      Timeout: 15
+      Role: 'arn:aws:iam::808751852363:role/service-role/search-photos-role-ql49g71s'
+      Layers: [arn:aws:lambda:us-east-1:808751852363:layer:aws4auth:1,arn:aws:lambda:us-east-1:808751852363:layer:requests_layer:1]
+      Events:
+        PhotoAlbum:
+          Type: Api
+          Properties:
+            Path: /search
+            Method: GET
+  ## required for S3 upload to trigger Lamdba
+  LambdaInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt LF1.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 's3.amazonaws.com'
+      SourceAccount: !Sub ${AWS::AccountId}
+      SourceArn: !GetAtt PhotoAlbumBucket.Arn
