@@ -1,5 +1,5 @@
 # COMS6998 Cloud Computing and Big Data FALL2022
-## Assignment 1 Dining Concierge Assistant
+## Assignment 2 Photo Album
 ### Team: Asura Shen and Ganghua Mei
 
 Customer Service is a core service for a lot of businesses around the world and it is getting 
